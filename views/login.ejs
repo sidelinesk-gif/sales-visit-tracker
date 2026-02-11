@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="login-page">
+  <div class="login-card">
+    <h1>Visit Tracker</h1>
+    <p class="login-subtitle">Sign in to your account</p>
+
+    <% if (error) { %>
+      <div class="banner banner-error mb-3"><%= error %></div>
+    <% } %>
+
+    <form method="POST" action="/login" id="loginForm" novalidate>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" class="form-control" placeholder="you@company.com" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" class="form-control" placeholder="Enter your password" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="loginBtn">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  // Client-side validation
+  document.getElementById('loginForm').addEventListener('submit', function(e) {
+    var email = document.getElementById('email');
+    var password = document.getElementById('password');
+    if (!email.value.trim() || !password.value) {
+      e.preventDefault();
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) {
+      e.preventDefault();
+      email.focus();
+      return;
+    }
+    var btn = document.getElementById('loginBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Signing in...';
+  });
+</script>
+</body>
+</html>

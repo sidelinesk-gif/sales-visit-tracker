@@ -1,0 +1,120 @@
+<%- include('partials/header') %>
+
+<div class="container">
+  <h1 class="page-title">Manager Dashboard</h1>
+
+  <!-- Filters -->
+  <div class="card">
+    <form method="GET" action="/manager" class="filters">
+      <div class="filter-group">
+        <label for="from">From</label>
+        <input type="date" id="from" name="from" class="form-control" value="<%= filters.from %>" required>
+      </div>
+      <div class="filter-group">
+        <label for="to">To</label>
+        <input type="date" id="to" name="to" class="form-control" value="<%= filters.to %>" required>
+      </div>
+      <div class="filter-group">
+        <label for="rep_id">Sales Rep</label>
+        <select id="rep_id" name="rep_id" class="form-control">
+          <option value="">All Reps</option>
+          <% reps.forEach(r => { %>
+            <option value="<%= r.id %>" <%= filters.repId == r.id ? 'selected' : '' %>><%= r.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+      <a href="/manager/export?from=<%= filters.from %>&to=<%= filters.to %>&rep_id=<%= filters.repId %>" class="btn btn-success btn-sm">Export CSV</a>
+    </form>
+  </div>
+
+  <!-- Visits Table -->
+  <div class="card">
+    <% if (visits.length === 0) { %>
+      <div class="empty-state">
+        <p>No visits found for selected filters.</p>
+      </div>
+    <% } else { %>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date/Time</th>
+              <th>Sales Rep</th>
+              <th>Client</th>
+              <th>Location</th>
+              <th>Distance (m)</th>
+              <th>Geofence</th>
+              <th>Flag</th>
+              <th>Purpose</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% visits.forEach((v, i) => { %>
+              <tr class="clickable-row" onclick="toggleDetail(<%= i %>)">
+                <td><%= new Date(v.created_at).toLocaleString('en-ZA') %></td>
+                <td><%= v.rep_name %></td>
+                <td><%= v.client_name %></td>
+                <td><%= v.visit_location_name || (v.latitude.toFixed(4) + ', ' + v.longitude.toFixed(4)) %></td>
+                <td><%= v.distance_from_client != null ? Math.round(v.distance_from_client) : '-' %></td>
+                <td>
+                  <% if (v.within_geofence) { %>
+                    <span class="badge badge-ok">Yes</span>
+                  <% } else { %>
+                    <span class="badge badge-danger">No</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (v.system_flag === 'OK') { %>
+                    <span class="badge badge-ok">OK</span>
+                  <% } else if (v.system_flag === 'OUTSIDE_GEOFENCE') { %>
+                    <span class="badge badge-danger">Outside</span>
+                  <% } else if (v.system_flag === 'LOW_ACCURACY') { %>
+                    <span class="badge badge-warning">Low Acc</span>
+                  <% } else { %>
+                    <span class="badge badge-neutral"><%= v.system_flag || '-' %></span>
+                  <% } %>
+                </td>
+                <td><%= v.visit_purpose || '-' %></td>
+              </tr>
+              <tr class="detail-row">
+                <td colspan="8">
+                  <div class="detail-panel" id="detail-<%= i %>">
+                    <div class="detail-grid">
+                      <div>
+                        <dt>Notes</dt>
+                        <dd><%= v.notes || 'No notes' %></dd>
+                        <dt>Accuracy</dt>
+                        <dd><%= v.accuracy != null ? v.accuracy.toFixed(1) + ' m' : '-' %></dd>
+                        <dt>Visit Location</dt>
+                        <dd><%= v.visit_location_name || '-' %></dd>
+                        <dt>Client Location</dt>
+                        <dd><%= v.client_location || '-' %></dd>
+                        <dt>Coordinates</dt>
+                        <dd><%= v.latitude.toFixed(6) %>, <%= v.longitude.toFixed(6) %></dd>
+                      </div>
+                      <div>
+                        <% if (v.selfie_path) { %>
+                          <dt>Selfie</dt>
+                          <dd><img src="<%= v.selfie_path %>" alt="Visit selfie" class="detail-selfie"></dd>
+                        <% } %>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<script>
+function toggleDetail(index) {
+  document.getElementById('detail-' + index).classList.toggle('open');
+}
+</script>
+
+<%- include('partials/footer') %>

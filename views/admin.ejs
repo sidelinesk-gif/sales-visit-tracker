@@ -1,0 +1,294 @@
+<%- include('partials/header') %>
+
+<div class="container">
+  <h1 class="page-title">Admin Panel</h1>
+
+  <!-- Stats -->
+  <div class="card">
+    <div class="stats-grid">
+      <div class="stat-item">
+        <div class="stat-value"><%= stats.users %></div>
+        <div class="stat-label">Users</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value"><%= stats.clients %></div>
+        <div class="stat-label">Clients</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value"><%= stats.visits %></div>
+        <div class="stat-label">Visits</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value"><%= stats.pendingClients %></div>
+        <div class="stat-label">Pending Clients</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Actions -->
+  <div class="card">
+    <div class="card-header">Quick Actions</div>
+    <div class="flex flex-wrap gap-2">
+      <a href="/admin/export" class="btn btn-success btn-sm">Export All Visits CSV</a>
+    </div>
+  </div>
+
+  <!-- Users Section -->
+  <div class="card">
+    <div class="card-header flex justify-between items-center">
+      <span>Users</span>
+      <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('addUserForm').classList.toggle('hidden')">Add User</button>
+    </div>
+
+    <div id="addUserForm" class="hidden" style="padding:16px 0;border-bottom:1px solid #e2e8f0;margin-bottom:16px">
+      <form method="POST" action="/admin/users">
+        <div class="filters">
+          <div class="filter-group">
+            <label>Name</label>
+            <input type="text" name="name" class="form-control" required placeholder="Full name">
+          </div>
+          <div class="filter-group">
+            <label>Email</label>
+            <input type="email" name="email" class="form-control" required placeholder="user@company.com">
+          </div>
+          <div class="filter-group">
+            <label>Password</label>
+            <input type="password" name="password" class="form-control" required minlength="6" placeholder="Min 6 chars">
+          </div>
+          <div class="filter-group">
+            <label>Role</label>
+            <select name="role" class="form-control" required>
+              <option value="">Select role</option>
+              <option value="admin">Admin</option>
+              <option value="manager">Manager</option>
+              <option value="sales_rep">Sales Rep</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Manager</label>
+            <select name="manager_id" class="form-control">
+              <option value="">None</option>
+              <% managers.forEach(m => { %>
+                <option value="<%= m.id %>"><%= m.name %></option>
+              <% }) %>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Create</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Manager</th>
+            <th>Active</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% users.forEach(u => { %>
+            <tr>
+              <td><%= u.name %></td>
+              <td><%= u.email %></td>
+              <td><span class="badge badge-info"><%= u.role.replace('_',' ') %></span></td>
+              <td><%= u.manager_name || '-' %></td>
+              <td>
+                <% if (u.is_active) { %>
+                  <span class="badge badge-ok">Yes</span>
+                <% } else { %>
+                  <span class="badge badge-danger">No</span>
+                <% } %>
+              </td>
+              <td>
+                <% if (u.id !== user.id) { %>
+                  <form method="POST" action="/admin/users/<%= u.id %>/toggle" style="display:inline">
+                    <button type="submit" class="btn btn-sm <%= u.is_active ? 'btn-danger' : 'btn-success' %>" style="min-height:32px;padding:4px 10px"><%= u.is_active ? 'Deactivate' : 'Activate' %></button>
+                  </form>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Clients Section -->
+  <div class="card">
+    <div class="card-header flex justify-between items-center">
+      <span>Clients</span>
+      <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('addClientForm').classList.toggle('hidden')">Add Client</button>
+    </div>
+
+    <div id="addClientForm" class="hidden" style="padding:16px 0;border-bottom:1px solid #e2e8f0;margin-bottom:16px">
+      <form method="POST" action="/admin/clients">
+        <div class="filters">
+          <div class="filter-group">
+            <label>Name</label>
+            <input type="text" name="name" class="form-control" required placeholder="Client name">
+          </div>
+          <div class="filter-group" style="flex:2 1 300px">
+            <label>Search Location</label>
+            <input type="text" id="locationSearch" class="form-control" placeholder="Search for an address or place...">
+          </div>
+          <div class="filter-group">
+            <label>&nbsp;</label>
+            <button type="button" id="useMyLocation" class="btn btn-outline btn-sm" style="min-height:38px">Use My Current Location</button>
+          </div>
+          <div class="filter-group">
+            <label>Latitude</label>
+            <input type="number" name="latitude" id="clientLatitude" class="form-control" required step="any" placeholder="-26.2041">
+          </div>
+          <div class="filter-group">
+            <label>Longitude</label>
+            <input type="number" name="longitude" id="clientLongitude" class="form-control" required step="any" placeholder="28.0473">
+          </div>
+          <div class="filter-group">
+            <label>Geo Radius (m)</label>
+            <input type="number" name="geo_radius" class="form-control" value="50" min="10" max="1000">
+          </div>
+          <div class="filter-group" style="flex:2 1 300px">
+            <label>Location Name</label>
+            <input type="text" name="location_name" id="clientLocationName" class="form-control" placeholder="e.g. Connaught Place, New Delhi">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Create</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Location</th>
+            <th>Radius</th>
+            <th>Status</th>
+            <th>Approved</th>
+            <th>Assigned To</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% clients.forEach(c => { %>
+            <tr>
+              <td><%= c.name %></td>
+              <td><%= c.location_name || (c.latitude.toFixed(4) + ', ' + c.longitude.toFixed(4)) %></td>
+              <td><%= c.geo_radius %>m</td>
+              <td><span class="badge <%= c.status === 'New' ? 'badge-warning' : 'badge-info' %>"><%= c.status %></span></td>
+              <td>
+                <% if (c.approved) { %>
+                  <span class="badge badge-ok">Yes</span>
+                <% } else { %>
+                  <span class="badge badge-warning">Pending</span>
+                <% } %>
+              </td>
+              <td><%= c.assigned_reps || '-' %></td>
+              <td>
+                <% if (!c.approved) { %>
+                  <form method="POST" action="/admin/clients/<%= c.id %>/approve" style="display:inline">
+                    <button type="submit" class="btn btn-success btn-sm" style="min-height:32px;padding:4px 10px">Approve</button>
+                  </form>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Client Assignment -->
+  <div class="card">
+    <div class="card-header">Assign Client to Sales Rep</div>
+    <form method="POST" action="/admin/assign" class="filters">
+      <div class="filter-group">
+        <label>Sales Rep</label>
+        <select name="sales_rep_id" class="form-control" required>
+          <option value="">Select rep</option>
+          <% reps.forEach(r => { %>
+            <option value="<%= r.id %>"><%= r.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Client</label>
+        <select name="client_id" class="form-control" required>
+          <option value="">Select client</option>
+          <% clients.filter(c => c.approved).forEach(c => { %>
+            <option value="<%= c.id %>"><%= c.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">Assign</button>
+    </form>
+  </div>
+</div>
+
+<style>
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px; }
+  .stat-item { text-align: center; padding: 12px; }
+  .stat-value { font-size: 28px; font-weight: 800; color: #2563eb; }
+  .stat-label { font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+</style>
+
+<% if (googleMapsApiKey) { %>
+<script>
+  function initAutocomplete() {
+    var input = document.getElementById('locationSearch');
+    if (!input) return;
+    var autocomplete = new google.maps.places.Autocomplete(input, { types: ['establishment', 'geocode'] });
+    autocomplete.addListener('place_changed', function() {
+      var place = autocomplete.getPlace();
+      if (place.geometry && place.geometry.location) {
+        document.getElementById('clientLatitude').value = place.geometry.location.lat();
+        document.getElementById('clientLongitude').value = place.geometry.location.lng();
+        document.getElementById('clientLocationName').value = place.formatted_address || place.name || '';
+      }
+    });
+  }
+</script>
+<script src="https://maps.googleapis.com/maps/api/js?key=<%= googleMapsApiKey %>&libraries=places&callback=initAutocomplete" async defer></script>
+<% } %>
+
+<script>
+  document.getElementById('useMyLocation').addEventListener('click', function() {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+    var btn = this;
+    btn.textContent = 'Locating...';
+    btn.disabled = true;
+    navigator.geolocation.getCurrentPosition(function(pos) {
+      var lat = pos.coords.latitude;
+      var lng = pos.coords.longitude;
+      document.getElementById('clientLatitude').value = lat;
+      document.getElementById('clientLongitude').value = lng;
+      btn.textContent = 'Use My Current Location';
+      btn.disabled = false;
+      // Reverse geocode with Nominatim
+      fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json', {
+        headers: { 'User-Agent': 'SalesVisitTracker/1.0' }
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.display_name) {
+            document.getElementById('clientLocationName').value = data.display_name;
+          }
+        })
+        .catch(function() {});
+    }, function(err) {
+      alert('Could not get your location: ' + err.message);
+      btn.textContent = 'Use My Current Location';
+      btn.disabled = false;
+    }, { enableHighAccuracy: true, timeout: 10000 });
+  });
+</script>
+
+<%- include('partials/footer') %>

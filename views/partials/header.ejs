@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= typeof title !== 'undefined' ? title : 'Visit Tracker' %></title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<% if (typeof user !== 'undefined' && user) { %>
+<nav class="navbar">
+  <a href="/" class="navbar-brand">Visit Tracker</a>
+
+  <ul class="navbar-nav">
+    <% if (user.role === 'admin') { %>
+      <li><a href="/admin">Admin Panel</a></li>
+    <% } %>
+    <% if (user.role === 'manager') { %>
+      <li><a href="/manager">Dashboard</a></li>
+    <% } %>
+    <% if (user.role === 'sales_rep') { %>
+      <li><a href="/visit">New Visit</a></li>
+    <% } %>
+  </ul>
+
+  <div class="navbar-user">
+    <div class="navbar-user-info">
+      <div class="navbar-user-name"><%= user.name %></div>
+      <div class="navbar-user-role"><%= user.role.replace('_', ' ') %></div>
+    </div>
+    <a href="/logout" class="navbar-logout">Logout</a>
+  </div>
+
+  <button class="hamburger" id="hamburgerBtn" aria-label="Menu">
+    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <line x1="3" y1="6" x2="21" y2="6"/>
+      <line x1="3" y1="12" x2="21" y2="12"/>
+      <line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  </button>
+</nav>
+
+<div class="mobile-menu" id="mobileMenu">
+  <div class="mobile-menu-inner">
+    <% if (user.role === 'admin') { %>
+      <a href="/admin">Admin Panel</a>
+    <% } %>
+    <% if (user.role === 'manager') { %>
+      <a href="/manager">Dashboard</a>
+    <% } %>
+    <% if (user.role === 'sales_rep') { %>
+      <a href="/visit">New Visit</a>
+    <% } %>
+    <a href="/logout">Logout (<%= user.name %>)</a>
+  </div>
+</div>
+<% } %>

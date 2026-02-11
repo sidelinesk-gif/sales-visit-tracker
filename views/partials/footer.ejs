@@ -1,0 +1,17 @@
+<script>
+  // Mobile hamburger toggle
+  (function() {
+    var btn = document.getElementById('hamburgerBtn');
+    var menu = document.getElementById('mobileMenu');
+    if (btn && menu) {
+      btn.addEventListener('click', function() {
+        menu.classList.toggle('open');
+      });
+      menu.addEventListener('click', function(e) {
+        if (e.target === menu) menu.classList.remove('open');
+      });
+    }
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,347 @@
+<%- include('partials/header') %>
+
+<div class="container">
+  <h1 class="page-title">Log Visit</h1>
+
+  <!-- Success / Error banner -->
+  <div class="banner-fixed" id="banner"></div>
+
+  <div class="steps">
+
+    <!-- STEP 1: SELECT CLIENT -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num" id="step1Num">1</div>
+        <span class="step-title">Select Client</span>
+        <span class="step-check" id="step1Check">&#10003;</span>
+      </div>
+
+      <select id="clientSelect" class="form-control" required>
+        <option value="">-- Choose a client --</option>
+        <% clients.forEach(c => { %>
+          <option value="<%= c.id %>" data-lat="<%= c.latitude %>" data-lng="<%= c.longitude %>" data-radius="<%= c.geo_radius %>"><%= c.name %></option>
+        <% }) %>
+      </select>
+
+      <button type="button" class="btn btn-outline btn-block mt-3" id="toggleNewClient">Add New Client</button>
+
+      <div class="new-client-section" id="newClientSection">
+        <div class="form-group">
+          <label for="newClientName">Client Name</label>
+          <input type="text" id="newClientName" class="form-control" placeholder="Enter client name">
+        </div>
+        <button type="button" class="btn btn-outline btn-block" id="captureClientLocBtn">Capture Client Location</button>
+        <div id="clientLocInfo" class="info-box" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- STEP 2: CAPTURE MY LOCATION -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num" id="step2Num">2</div>
+        <span class="step-title">Capture My Location</span>
+        <span class="step-check" id="step2Check">&#10003;</span>
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="captureLocBtn">Capture My Location</button>
+      <div id="locInfo" class="info-box" style="display:none"></div>
+      <div id="locError" class="info-box error" style="display:none"></div>
+    </div>
+
+    <!-- STEP 3: TAKE SELFIE -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num" id="step3Num">3</div>
+        <span class="step-title">Take Selfie</span>
+        <span class="step-check" id="step3Check">&#10003;</span>
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="selfieBtn">Take Photo</button>
+      <input type="file" accept="image/*" capture="user" class="hidden" id="selfieInput">
+      <img id="selfiePreview" class="selfie-preview" alt="Selfie preview">
+      <div id="selfieError" class="info-box error" style="display:none"></div>
+    </div>
+
+    <!-- STEP 4: VISIT DETAILS -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num">4</div>
+        <span class="step-title">Visit Details</span>
+      </div>
+      <div class="form-group">
+        <label for="visitPurpose">Visit Purpose</label>
+        <select id="visitPurpose" class="form-control" required>
+          <option value="">-- Select purpose --</option>
+          <option value="Follow-up">Follow-up</option>
+          <option value="New Pitch">New Pitch</option>
+          <option value="Collection">Collection</option>
+          <option value="Delivery">Delivery</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="notes">Notes <span class="text-muted">(optional)</span></label>
+        <textarea id="notes" class="form-control" maxlength="500" placeholder="Add any notes about this visit..."></textarea>
+        <div class="char-count"><span id="charCount">0</span>/500</div>
+      </div>
+    </div>
+
+    <!-- STEP 5: SUBMIT -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num">5</div>
+        <span class="step-title">Submit Visit</span>
+      </div>
+      <button type="button" class="btn btn-success btn-block" id="submitBtn" disabled>Submit Visit</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function() {
+  var myLat = null, myLng = null, myAccuracy = null;
+  var myLocationName = '';
+  var clientLat = null, clientLng = null;
+  var clientLocationName = '';
+  var selfieFile = null;
+  var isNewClient = false;
+  var submitting = false;
+
+  function reverseGeocode(lat, lng, callback) {
+    fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json', {
+      headers: { 'User-Agent': 'SalesVisitTracker/1.0' }
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) { callback(data.display_name || ''); })
+      .catch(function() { callback(''); });
+  }
+
+  function $(id) { return document.getElementById(id); }
+
+  var clientSelect = $('clientSelect');
+  var toggleNewClientBtn = $('toggleNewClient');
+  var newClientSection = $('newClientSection');
+  var newClientName = $('newClientName');
+  var captureClientLocBtn = $('captureClientLocBtn');
+  var clientLocInfo = $('clientLocInfo');
+  var captureLocBtn = $('captureLocBtn');
+  var locInfo = $('locInfo');
+  var locError = $('locError');
+  var selfieBtn = $('selfieBtn');
+  var selfieInput = $('selfieInput');
+  var selfiePreview = $('selfiePreview');
+  var selfieError = $('selfieError');
+  var visitPurpose = $('visitPurpose');
+  var notes = $('notes');
+  var charCount = $('charCount');
+  var submitBtn = $('submitBtn');
+  var banner = $('banner');
+
+  function show(el) { el.style.display = 'block'; }
+  function hide(el) { el.style.display = 'none'; }
+
+  function updateSubmitState() {
+    var hasClient = clientSelect.value || (isNewClient && newClientName.value.trim() && clientLat !== null);
+    var hasLocation = myLat !== null;
+    var hasSelfie = selfieFile !== null;
+    submitBtn.disabled = !(hasClient && hasLocation && hasSelfie) || submitting;
+  }
+
+  function markStep(num, done) {
+    var el = $('step' + num + 'Num');
+    var ck = $('step' + num + 'Check');
+    if (done) { el.classList.add('done'); ck.classList.add('show'); }
+    else { el.classList.remove('done'); ck.classList.remove('show'); }
+  }
+
+  // STEP 1: Client selection
+  clientSelect.addEventListener('change', function() {
+    if (this.value) {
+      isNewClient = false;
+      newClientSection.classList.remove('show');
+      toggleNewClientBtn.textContent = 'Add New Client';
+      markStep(1, true);
+    } else {
+      markStep(1, false);
+    }
+    updateSubmitState();
+  });
+
+  toggleNewClientBtn.addEventListener('click', function() {
+    isNewClient = !isNewClient;
+    if (isNewClient) {
+      newClientSection.classList.add('show');
+      clientSelect.value = '';
+      this.textContent = 'Cancel \u2014 Pick Existing';
+      markStep(1, false);
+    } else {
+      newClientSection.classList.remove('show');
+      this.textContent = 'Add New Client';
+      clientLat = null;
+      clientLng = null;
+      hide(clientLocInfo);
+    }
+    updateSubmitState();
+  });
+
+  newClientName.addEventListener('input', updateSubmitState);
+
+  captureClientLocBtn.addEventListener('click', function() {
+    this.disabled = true;
+    this.textContent = 'Capturing...';
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        clientLat = pos.coords.latitude;
+        clientLng = pos.coords.longitude;
+        clientLocInfo.innerHTML = '<strong>Location captured</strong><br>' + clientLat.toFixed(6) + ', ' + clientLng.toFixed(6);
+        show(clientLocInfo);
+        clientLocInfo.className = 'info-box';
+        captureClientLocBtn.textContent = 'Recapture Location';
+        captureClientLocBtn.disabled = false;
+        if (newClientName.value.trim()) markStep(1, true);
+        updateSubmitState();
+        reverseGeocode(clientLat, clientLng, function(name) {
+          if (name) {
+            clientLocationName = name;
+            clientLocInfo.innerHTML = '<strong>Location captured</strong><br>' + name;
+          }
+        });
+      },
+      function() {
+        clientLocInfo.textContent = 'Failed to capture location. Please enable location access.';
+        show(clientLocInfo);
+        clientLocInfo.className = 'info-box error';
+        captureClientLocBtn.textContent = 'Retry Capture';
+        captureClientLocBtn.disabled = false;
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  });
+
+  // STEP 2: My location
+  captureLocBtn.addEventListener('click', function() {
+    this.disabled = true;
+    this.textContent = 'Capturing...';
+    hide(locError);
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        myLat = pos.coords.latitude;
+        myLng = pos.coords.longitude;
+        myAccuracy = pos.coords.accuracy;
+        locInfo.innerHTML =
+          '<strong>Location captured</strong><br>' +
+          'Lat: ' + myLat.toFixed(6) + '<br>' +
+          'Lng: ' + myLng.toFixed(6) + '<br>' +
+          'Accuracy: ' + myAccuracy.toFixed(1) + 'm';
+        show(locInfo);
+        captureLocBtn.textContent = 'Recapture Location';
+        captureLocBtn.disabled = false;
+        markStep(2, true);
+        updateSubmitState();
+        reverseGeocode(myLat, myLng, function(name) {
+          if (name) {
+            myLocationName = name;
+            locInfo.innerHTML =
+              '<strong>You are at:</strong> ' + name + '<br>' +
+              'Accuracy: ' + myAccuracy.toFixed(1) + 'm';
+          }
+        });
+      },
+      function() {
+        locError.textContent = 'Please enable location access and try again.';
+        show(locError);
+        captureLocBtn.textContent = 'Retry';
+        captureLocBtn.disabled = false;
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  });
+
+  // STEP 3: Selfie
+  selfieBtn.addEventListener('click', function() { selfieInput.click(); });
+
+  selfieInput.addEventListener('change', function() {
+    hide(selfieError);
+    var file = this.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      selfieError.textContent = 'Please select an image file.';
+      show(selfieError);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      selfieError.textContent = 'Image must be under 5MB.';
+      show(selfieError);
+      return;
+    }
+    selfieFile = file;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      selfiePreview.src = e.target.result;
+      selfiePreview.classList.add('show');
+    };
+    reader.readAsDataURL(file);
+    markStep(3, true);
+    updateSubmitState();
+  });
+
+  // STEP 4: Notes char count
+  notes.addEventListener('input', function() {
+    charCount.textContent = this.value.length;
+  });
+
+  // STEP 5: Submit
+  submitBtn.addEventListener('click', async function() {
+    // Client-side validation
+    if (!visitPurpose.value) {
+      visitPurpose.focus();
+      return;
+    }
+
+    if (submitting) return;
+    submitting = true;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner"></span> Submitting...';
+    banner.classList.remove('show', 'success', 'error');
+
+    var fd = new FormData();
+
+    if (isNewClient) {
+      fd.append('new_client_name', newClientName.value.trim());
+      fd.append('client_lat', clientLat);
+      fd.append('client_lng', clientLng);
+      if (clientLocationName) fd.append('client_location_name', clientLocationName);
+    } else {
+      fd.append('client_id', clientSelect.value);
+    }
+
+    fd.append('latitude', myLat);
+    fd.append('longitude', myLng);
+    fd.append('accuracy', myAccuracy);
+    fd.append('visit_purpose', visitPurpose.value);
+    fd.append('notes', notes.value);
+    fd.append('selfie', selfieFile);
+    if (myLocationName) fd.append('visit_location_name', myLocationName);
+
+    try {
+      var resp = await fetch('/api/visit', { method: 'POST', body: fd });
+      var data = await resp.json();
+      if (resp.ok && data.success) {
+        banner.className = 'banner-fixed show success';
+        banner.innerHTML = 'Visit Recorded Successfully!<br><button onclick="location.reload()" class="btn btn-outline" style="margin-top:10px;color:#fff;border-color:#fff">Submit Another</button>';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        throw new Error(data.error || 'Submission failed');
+      }
+    } catch(err) {
+      banner.className = 'banner-fixed show error';
+      banner.textContent = err.message || 'Failed to submit visit.';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      submitting = false;
+      submitBtn.innerHTML = 'Submit Visit';
+      updateSubmitState();
+    }
+  });
+})();
+</script>
+
+<%- include('partials/footer') %>
