@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const db = require('../db/db');
+const pool = require('../db/db');
 const { isAuthenticated, requireRole } = require('../middleware/auth');
 const haversineDistance = require('../utils/haversine');
 
@@ -29,20 +29,20 @@ const upload = multer({
 });
 
 // GET /visit — render visit form
-router.get('/visit', isAuthenticated, requireRole('sales_rep'), (req, res) => {
-  const clients = db.prepare(`
+router.get('/visit', isAuthenticated, requireRole('sales_rep'), async (req, res) => {
+  const result = await pool.query(`
     SELECT c.id, c.name, c.latitude, c.longitude, c.geo_radius
     FROM clients c
     JOIN client_assignments ca ON ca.client_id = c.id
-    WHERE ca.sales_rep_id = ? AND c.approved = 1
+    WHERE ca.sales_rep_id = $1 AND c.approved = 1
     ORDER BY c.name
-  `).all(req.session.user.id);
+  `, [req.session.user.id]);
 
-  res.render('visit', { title: 'Log Visit', clients });
+  res.render('visit', { title: 'Log Visit', clients: result.rows });
 });
 
 // POST /api/visit — handle visit submission
-router.post('/api/visit', isAuthenticated, requireRole('sales_rep'), upload.single('selfie'), (req, res) => {
+router.post('/api/visit', isAuthenticated, requireRole('sales_rep'), upload.single('selfie'), async (req, res) => {
   try {
     const userId = req.session.user.id;
     const { client_id, new_client_name, client_lat, client_lng, client_location_name, latitude, longitude, accuracy, visit_purpose, notes, visit_location_name } = req.body;
@@ -51,14 +51,16 @@ router.post('/api/visit', isAuthenticated, requireRole('sales_rep'), upload.sing
 
     // Handle new client creation
     if (!client_id && new_client_name && client_lat && client_lng) {
-      const result = db.prepare(
-        'INSERT INTO clients (name, latitude, longitude, location_name, status, approved, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(new_client_name.trim(), parseFloat(client_lat), parseFloat(client_lng), client_location_name || null, 'New', 0, userId);
-      finalClientId = result.lastInsertRowid;
+      const insertResult = await pool.query(
+        'INSERT INTO clients (name, latitude, longitude, location_name, status, approved, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+        [new_client_name.trim(), parseFloat(client_lat), parseFloat(client_lng), client_location_name || null, 'New', 0, userId]
+      );
+      finalClientId = insertResult.rows[0].id;
 
-      db.prepare(
-        'INSERT INTO client_assignments (sales_rep_id, client_id) VALUES (?, ?)'
-      ).run(userId, finalClientId);
+      await pool.query(
+        'INSERT INTO client_assignments (sales_rep_id, client_id) VALUES ($1, $2)',
+        [userId, finalClientId]
+      );
     }
 
     if (!finalClientId || !latitude || !longitude) {
@@ -70,7 +72,8 @@ router.post('/api/visit', isAuthenticated, requireRole('sales_rep'), upload.sing
     }
 
     // Calculate distance from client
-    const client = db.prepare('SELECT latitude, longitude, geo_radius FROM clients WHERE id = ?').get(finalClientId);
+    const clientResult = await pool.query('SELECT latitude, longitude, geo_radius FROM clients WHERE id = $1', [finalClientId]);
+    const client = clientResult.rows[0];
     if (!client) {
       return res.status(400).json({ error: 'Client not found.' });
     }
@@ -91,10 +94,10 @@ router.post('/api/visit', isAuthenticated, requireRole('sales_rep'), upload.sing
 
     const selfiePath = '/uploads/' + req.file.filename;
 
-    db.prepare(`
+    await pool.query(`
       INSERT INTO visits (sales_rep_id, client_id, latitude, longitude, accuracy, distance_from_client, within_geofence, visit_purpose, notes, selfie_path, device_fingerprint, system_flag, visit_location_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    `, [
       userId, finalClientId,
       parseFloat(latitude), parseFloat(longitude),
       accuracy ? parseFloat(accuracy) : null,
@@ -106,7 +109,7 @@ router.post('/api/visit', isAuthenticated, requireRole('sales_rep'), upload.sing
       null,
       systemFlag,
       visit_location_name || null
-    );
+    ]);
 
     res.json({ success: true, distance: Math.round(distance), withinGeofence: !!withinGeofence });
   } catch (err) {

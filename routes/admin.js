@@ -1,12 +1,12 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const db = require('../db/db');
+const pool = require('../db/db');
 const { isAuthenticated, requireRole } = require('../middleware/auth');
 const generateVisitsCsv = require('../utils/csv-export');
 
 const router = express.Router();
 
-function getAllVisits({ from, to }) {
+async function getAllVisits({ from, to }) {
   let sql = `
     SELECT v.*,
            rep.name AS rep_name, rep.email AS rep_email,
@@ -20,56 +20,72 @@ function getAllVisits({ from, to }) {
     WHERE 1=1
   `;
   const params = [];
+  let paramIndex = 1;
 
   if (from) {
-    sql += ' AND DATE(v.created_at) >= ?';
+    sql += ` AND DATE(v.created_at) >= $${paramIndex}`;
     params.push(from);
+    paramIndex++;
   }
   if (to) {
-    sql += ' AND DATE(v.created_at) <= ?';
+    sql += ` AND DATE(v.created_at) <= $${paramIndex}`;
     params.push(to);
+    paramIndex++;
   }
 
   sql += ' ORDER BY v.created_at DESC';
-  const results = db.prepare(sql).all(...params);
-  console.log(`[CSV Export] Query returned ${results.length} visit(s)`);
-  return results;
+  const result = await pool.query(sql, params);
+  console.log(`[CSV Export] Query returned ${result.rows.length} visit(s)`);
+  return result.rows;
 }
 
 // GET /admin — dashboard
-router.get('/admin', isAuthenticated, requireRole('admin'), (req, res) => {
-  const users = db.prepare(`
+router.get('/admin', isAuthenticated, requireRole('admin'), async (req, res) => {
+  const usersResult = await pool.query(`
     SELECT u.*, m.name AS manager_name
     FROM users u
     LEFT JOIN users m ON m.id = u.manager_id
     ORDER BY u.role, u.name
-  `).all();
+  `);
 
-  const clients = db.prepare(`
+  const clientsResult = await pool.query(`
     SELECT c.*,
-      GROUP_CONCAT(rep.name, ', ') AS assigned_reps
+      STRING_AGG(rep.name, ', ') AS assigned_reps
     FROM clients c
     LEFT JOIN client_assignments ca ON ca.client_id = c.id
     LEFT JOIN users rep ON rep.id = ca.sales_rep_id
     GROUP BY c.id
     ORDER BY c.approved ASC, c.name
-  `).all();
+  `);
 
-  const managers = db.prepare("SELECT id, name FROM users WHERE role IN ('admin','manager') AND is_active = 1 ORDER BY name").all();
-  const reps = db.prepare("SELECT id, name FROM users WHERE role = 'sales_rep' AND is_active = 1 ORDER BY name").all();
+  const managersResult = await pool.query("SELECT id, name FROM users WHERE role IN ('admin','manager') AND is_active = 1 ORDER BY name");
+  const repsResult = await pool.query("SELECT id, name FROM users WHERE role = 'sales_rep' AND is_active = 1 ORDER BY name");
+
+  const userCount = await pool.query('SELECT COUNT(*) AS c FROM users');
+  const clientCount = await pool.query('SELECT COUNT(*) AS c FROM clients');
+  const visitCount = await pool.query('SELECT COUNT(*) AS c FROM visits');
+  const pendingCount = await pool.query('SELECT COUNT(*) AS c FROM clients WHERE approved = 0');
 
   const stats = {
-    users: db.prepare('SELECT COUNT(*) AS c FROM users').get().c,
-    clients: db.prepare('SELECT COUNT(*) AS c FROM clients').get().c,
-    visits: db.prepare('SELECT COUNT(*) AS c FROM visits').get().c,
-    pendingClients: db.prepare('SELECT COUNT(*) AS c FROM clients WHERE approved = 0').get().c
+    users: parseInt(userCount.rows[0].c),
+    clients: parseInt(clientCount.rows[0].c),
+    visits: parseInt(visitCount.rows[0].c),
+    pendingClients: parseInt(pendingCount.rows[0].c)
   };
 
-  res.render('admin', { title: 'Admin Panel', users, clients, managers, reps, stats, googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '' });
+  res.render('admin', {
+    title: 'Admin Panel',
+    users: usersResult.rows,
+    clients: clientsResult.rows,
+    managers: managersResult.rows,
+    reps: repsResult.rows,
+    stats,
+    googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || ''
+  });
 });
 
 // POST /admin/users — create user
-router.post('/admin/users', isAuthenticated, requireRole('admin'), (req, res) => {
+router.post('/admin/users', isAuthenticated, requireRole('admin'), async (req, res) => {
   const { name, email, password, role, manager_id } = req.body;
   if (!name || !email || !password || !role) {
     return res.status(400).render('error', { title: 'Error', message: 'All fields are required.' });
@@ -79,11 +95,12 @@ router.post('/admin/users', isAuthenticated, requireRole('admin'), (req, res) =>
   }
   const hash = bcrypt.hashSync(password, 10);
   try {
-    db.prepare(
-      'INSERT INTO users (name, email, password_hash, role, manager_id) VALUES (?, ?, ?, ?, ?)'
-    ).run(name.trim(), email.trim().toLowerCase(), hash, role, manager_id || null);
+    await pool.query(
+      'INSERT INTO users (name, email, password_hash, role, manager_id) VALUES ($1, $2, $3, $4, $5)',
+      [name.trim(), email.trim().toLowerCase(), hash, role, manager_id || null]
+    );
   } catch (err) {
-    if (err.message.includes('UNIQUE')) {
+    if (err.code === '23505') {
       return res.status(400).render('error', { title: 'Error', message: 'A user with this email already exists.' });
     }
     throw err;
@@ -92,50 +109,53 @@ router.post('/admin/users', isAuthenticated, requireRole('admin'), (req, res) =>
 });
 
 // POST /admin/users/:id/toggle — activate/deactivate
-router.post('/admin/users/:id/toggle', isAuthenticated, requireRole('admin'), (req, res) => {
-  const user = db.prepare('SELECT is_active FROM users WHERE id = ?').get(req.params.id);
+router.post('/admin/users/:id/toggle', isAuthenticated, requireRole('admin'), async (req, res) => {
+  const result = await pool.query('SELECT is_active FROM users WHERE id = $1', [req.params.id]);
+  const user = result.rows[0];
   if (user) {
-    db.prepare('UPDATE users SET is_active = ? WHERE id = ?').run(user.is_active ? 0 : 1, req.params.id);
+    await pool.query('UPDATE users SET is_active = $1 WHERE id = $2', [user.is_active ? 0 : 1, req.params.id]);
   }
   res.redirect('/admin');
 });
 
 // POST /admin/users/:id/reset-device — clear device fingerprint
-router.post('/admin/users/:id/reset-device', isAuthenticated, requireRole('admin'), (req, res) => {
-  db.prepare('UPDATE users SET device_fingerprint = NULL WHERE id = ?').run(req.params.id);
+router.post('/admin/users/:id/reset-device', isAuthenticated, requireRole('admin'), async (req, res) => {
+  await pool.query('UPDATE users SET device_fingerprint = NULL WHERE id = $1', [req.params.id]);
   res.redirect('/admin');
 });
 
 // POST /admin/clients — create client
-router.post('/admin/clients', isAuthenticated, requireRole('admin'), (req, res) => {
+router.post('/admin/clients', isAuthenticated, requireRole('admin'), async (req, res) => {
   const { name, latitude, longitude, geo_radius, location_name } = req.body;
   if (!name || !latitude || !longitude) {
     return res.status(400).render('error', { title: 'Error', message: 'Name, latitude and longitude are required.' });
   }
-  db.prepare(
-    'INSERT INTO clients (name, latitude, longitude, geo_radius, location_name, status, approved, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(name.trim(), parseFloat(latitude), parseFloat(longitude), parseInt(geo_radius) || 50, location_name ? location_name.trim() : null, 'Existing', 1, req.session.user.id);
+  await pool.query(
+    'INSERT INTO clients (name, latitude, longitude, geo_radius, location_name, status, approved, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+    [name.trim(), parseFloat(latitude), parseFloat(longitude), parseInt(geo_radius) || 50, location_name ? location_name.trim() : null, 'Existing', 1, req.session.user.id]
+  );
   res.redirect('/admin');
 });
 
 // POST /admin/clients/:id/approve — approve a pending client
-router.post('/admin/clients/:id/approve', isAuthenticated, requireRole('admin'), (req, res) => {
-  db.prepare('UPDATE clients SET approved = 1 WHERE id = ?').run(req.params.id);
+router.post('/admin/clients/:id/approve', isAuthenticated, requireRole('admin'), async (req, res) => {
+  await pool.query('UPDATE clients SET approved = 1 WHERE id = $1', [req.params.id]);
   res.redirect('/admin');
 });
 
 // POST /admin/assign — assign client to sales rep
-router.post('/admin/assign', isAuthenticated, requireRole('admin'), (req, res) => {
+router.post('/admin/assign', isAuthenticated, requireRole('admin'), async (req, res) => {
   const { sales_rep_id, client_id } = req.body;
   if (!sales_rep_id || !client_id) {
     return res.status(400).render('error', { title: 'Error', message: 'Sales rep and client are required.' });
   }
   try {
-    db.prepare(
-      'INSERT INTO client_assignments (sales_rep_id, client_id) VALUES (?, ?)'
-    ).run(sales_rep_id, client_id);
+    await pool.query(
+      'INSERT INTO client_assignments (sales_rep_id, client_id) VALUES ($1, $2)',
+      [sales_rep_id, client_id]
+    );
   } catch (err) {
-    if (err.message.includes('UNIQUE')) {
+    if (err.code === '23505') {
       return res.status(400).render('error', { title: 'Error', message: 'This client is already assigned to this rep.' });
     }
     throw err;
@@ -144,11 +164,11 @@ router.post('/admin/assign', isAuthenticated, requireRole('admin'), (req, res) =
 });
 
 // GET /admin/export — export all visits as CSV
-router.get('/admin/export', isAuthenticated, requireRole('admin'), (req, res) => {
+router.get('/admin/export', isAuthenticated, requireRole('admin'), async (req, res) => {
   const { from, to } = req.query;
   console.log('[Admin Export] Query params:', { from, to });
 
-  const visits = getAllVisits({ from, to });
+  const visits = await getAllVisits({ from, to });
   console.log(`[Admin Export] Rows returned: ${visits.length}`);
 
   const csv = generateVisitsCsv(visits);

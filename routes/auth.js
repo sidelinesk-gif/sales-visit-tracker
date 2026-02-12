@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const db = require('../db/db');
+const pool = require('../db/db');
 const router = express.Router();
 
 const ROLE_REDIRECTS = {
@@ -16,14 +16,15 @@ router.get('/login', (req, res) => {
   res.render('login', { title: 'Login', error: null });
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
     return res.render('login', { title: 'Login', error: 'Email and password are required.' });
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.trim().toLowerCase());
+  const result = await pool.query('SELECT * FROM users WHERE email = $1', [email.trim().toLowerCase()]);
+  const user = result.rows[0];
 
   if (!user) {
     return res.render('login', { title: 'Login', error: 'Invalid email or password.' });
